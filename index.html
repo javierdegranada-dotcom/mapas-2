@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Desafío América - Mapa Interactivo</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://d3js.org/d3.v7.min.js"></script>
@@ -23,6 +23,7 @@
             font-family: 'Inter', sans-serif;
             margin: 0;
             overflow: hidden;
+            touch-action: none;
         }
 
         .map-container {
@@ -44,6 +45,7 @@
             cursor: crosshair;
         }
 
+        /* Elementos Físicos */
         .river-path {
             fill: none;
             stroke: var(--river-blue);
@@ -111,26 +113,48 @@
             border-radius: 10px;
         }
 
-        /* Estilo para que los botones de zoom no se pierdan en móvil */
+        /* Controles de Zoom optimizados para móvil */
         .zoom-controls {
             position: absolute;
-            bottom: 1.5rem;
-            right: 1rem;
+            bottom: 2rem;
+            right: 1.5rem;
             display: flex;
             flex-direction: column;
-            gap: 0.5rem;
+            gap: 0.75rem;
+            z-index: 30;
+        }
+
+        .zoom-btn {
+            width: 3.5rem;
+            height: 3.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: white;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e2e8f0;
+            border-radius: 1rem;
+            font-weight: 900;
+            color: #1e293b;
+            touch-action: manipulation;
         }
 
         @media (max-width: 640px) {
             .zoom-controls {
-                bottom: 1rem;
-                right: 0.5rem;
-                gap: 0.4rem;
+                bottom: 1.5rem;
+                right: 1rem;
+                gap: 0.5rem;
             }
             .zoom-btn {
-                width: 2.5rem !important;
-                height: 2.5rem !important;
-                font-size: 0.75rem !important;
+                width: 3rem;
+                height: 3rem;
+                font-size: 0.875rem;
+                border-radius: 0.75rem;
+            }
+            .zoom-btn-reset {
+                font-size: 0.65rem !important;
+                padding: 2px;
+                text-align: center;
             }
         }
     </style>
@@ -147,7 +171,7 @@
         <div class="bg-white rounded-[2.5rem] p-8 sm:p-12 max-w-2xl w-full shadow-2xl text-center">
             <header class="mb-10">
                 <span class="bg-blue-100 text-blue-600 px-4 py-1 rounded-full text-xs font-bold uppercase tracking-widest">Geografía Escolar</span>
-                <h2 class="text-5xl font-black text-slate-800 mt-4 tracking-tighter uppercase italic">Mapa Mudo</h2>
+                <h2 class="text-4xl sm:text-5xl font-black text-slate-800 mt-4 tracking-tighter uppercase italic">Mapa Mudo</h2>
                 <p class="text-slate-500 mt-2 font-medium italic">Selecciona el modo de examen:</p>
             </header>
 
@@ -200,7 +224,7 @@
     </div>
 
     <!-- Map Area -->
-    <main class="flex-grow relative map-container overflow-hidden">
+    <main id="main-map-area" class="flex-grow relative map-container overflow-hidden">
         <svg id="map-svg" class="w-full h-full">
             <g id="main-group">
                 <rect id="ocean-rect" x="-5000" y="-5000" width="10000" height="10000" class="ocean-bg" />
@@ -212,16 +236,16 @@
         
         <!-- Zoom Controls Adaptados -->
         <div class="zoom-controls">
-            <button onclick="zoomIn()" class="zoom-btn w-12 h-12 bg-white shadow-xl rounded-xl font-black text-xl text-slate-800 border hover:bg-slate-50 transition-colors">+</button>
-            <button onclick="zoomOut()" class="zoom-btn w-12 h-12 bg-white shadow-xl rounded-xl font-black text-xl text-slate-800 border hover:bg-slate-50 transition-colors">-</button>
-            <button onclick="resetZoom()" class="zoom-btn w-12 h-12 bg-white shadow-xl rounded-xl text-[9px] font-black text-slate-800 border hover:bg-slate-50 transition-colors uppercase leading-none">Ajustar</button>
+            <button onclick="zoomIn()" class="zoom-btn text-xl font-black hover:bg-slate-50 transition-colors">+</button>
+            <button onclick="zoomOut()" class="zoom-btn text-xl font-black hover:bg-slate-50 transition-colors">-</button>
+            <button onclick="resetZoom()" class="zoom-btn zoom-btn-reset text-[10px] font-black hover:bg-slate-50 transition-colors uppercase leading-tight">Centrar</button>
         </div>
     </main>
 
     <!-- Modal Final -->
     <div id="end-modal" class="fixed inset-0 bg-slate-900/90 hidden z-[60] flex items-center justify-center p-4 backdrop-blur-md">
         <div class="bg-white rounded-[2.5rem] p-6 sm:p-10 max-w-lg w-full text-center shadow-2xl flex flex-col max-h-[90vh]">
-            <h2 class="text-3xl font-black text-slate-800 mb-2 italic uppercase">¡Reto Finalizado!</h2>
+            <h2 class="text-3xl font-black text-slate-800 mb-2 italic uppercase tracking-tighter">¡Reto Finalizado!</h2>
             
             <div id="final-stats-container" class="mb-4">
                 <p id="final-score-text" class="text-slate-500 text-sm font-medium mb-1"></p>
@@ -286,7 +310,7 @@
             { n: "Bahía de Hudson", c: [[-85, 60], [-80, 55]], r: 9 },
             { n: "Península del Labrador", c: [[-62, 55], [-65, 53]], r: 7 },
             { n: "Península de Florida", c: [[-81, 28]], r: 4 },
-            { n: "Península de Yucatán", c: [[-89, 20], [-85, 18]], r: 4 },
+            { n: "Península de Yucatán", c: [[-89, 20.5], [-87, 19]], r: 4 },
             { n: "Península de California", c: [[-113, 27], [-110, 24]], r: 5 },
             { n: "Estrecho de Bering", c: [[-168, 66]], r: 4 },
             { n: "Estrecho de Panamá", c: [[-79.5, 9]], r: 3 },
@@ -343,34 +367,35 @@
                 d3.select("#ocean-rect").on("click", (e) => handleMapClick(null, e));
                 d3.select("#countries-layer").selectAll(".country").data(state.countries).enter().append("path").attr("d", path).attr("class", "country").attr("id", (d) => `id-${d.id}`).on("click", (e, d) => handleMapClick(d, e));
                 
-                zoom = d3.zoom().scaleExtent([0.5, 20]).on("zoom", (e) => g.attr("transform", e.transform));
+                zoom = d3.zoom().scaleExtent([0.1, 40]).on("zoom", (e) => g.attr("transform", e.transform));
                 svg.call(zoom);
                 
                 document.getElementById('loading-overlay').style.display = 'none';
                 
-                // Forzar ajuste inicial
-                setTimeout(resetZoom, 200);
+                // Ajuste inicial de pantalla
+                setTimeout(resetZoom, 300);
             } catch (e) { console.error(e); }
         }
 
         function resetZoom() {
             if (!projection || !zoom || !state.countries.length) return;
 
-            // Calcular límites reales de todos los países
+            const svgNode = svg.node();
+            const width = svgNode.clientWidth || window.innerWidth;
+            const height = svgNode.clientHeight || window.innerHeight;
+
+            // Calculamos los límites de todos los países mostrados
             const bounds = path.bounds({type: "FeatureCollection", features: state.countries});
             const dx = bounds[1][0] - bounds[0][0];
             const dy = bounds[1][1] - bounds[0][1];
-            const x = (bounds[0][0] + bounds[1][1]) / 2; // Error tipográfico corregido: bounds[1][0]
             const midX = (bounds[0][0] + bounds[1][0]) / 2;
             const midY = (bounds[0][1] + bounds[1][1]) / 2;
 
-            const width = window.innerWidth;
-            const height = window.innerHeight - 150; // Quitando espacio de UI
-            
-            const scale = 0.85 / Math.max(dx / width, dy / height);
+            // Escala para ajustar al contenedor con margen del 10%
+            const scale = 0.9 / Math.max(dx / width, dy / height);
             const translate = [width / 2 - scale * midX, height / 2 - scale * midY];
 
-            svg.transition().duration(750).call(
+            svg.transition().duration(800).call(
                 zoom.transform,
                 d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale)
             );
@@ -385,6 +410,7 @@
             document.getElementById('menu-screen').classList.add('opacity-0', 'pointer-events-none');
             document.getElementById('game-header').classList.remove('hidden');
             document.getElementById('game-hud').classList.remove('hidden');
+            
             if (mode === 'politico') {
                 state.pending = [...state.countries].sort(() => Math.random() - 0.5);
                 document.getElementById('category-label').innerText = "Busca el país:";
@@ -392,9 +418,11 @@
                 state.pending = [...fisicoData].sort(() => Math.random() - 0.5);
                 document.getElementById('category-label').innerText = "Busca el accidente físico:";
             }
+            
             drawPhysicalVisuals();
             startTimer();
-            resetZoom();
+            // Esperar a que el HUD aparezca para encuadrar bien
+            setTimeout(resetZoom, 400);
             nextQuestion();
         }
 
@@ -409,7 +437,7 @@
             d3.select("#physical-layer").selectAll("*").remove();
             d3.select("#hint-layer").selectAll("*").remove();
             d3.selectAll(".country").classed("correct", false).classed("wrong", false);
-            resetZoom();
+            setTimeout(resetZoom, 100);
         }
 
         function drawPhysicalVisuals() {
@@ -543,6 +571,10 @@
 
         function zoomIn() { svg.transition().duration(400).call(zoom.scaleBy, 1.8); }
         function zoomOut() { svg.transition().duration(400).call(zoom.scaleBy, 0.6); }
+        
+        // Listener para redimensionar el mapa si se gira el móvil
+        window.addEventListener('resize', resetZoom);
+        
         window.onload = init;
     </script>
 </body>
