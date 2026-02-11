@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Desafío América - Mapa Interactivo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/topojson@3"></script>
+    <style>
+        :root {
+            --ocean-blue: #e0f2fe;
+            --land-white: #ffffff;
+            --border-color: #1e293b;
+            --correct-color: #22c55e;
+            --wrong-color: #ef4444;
+            --river-blue: #3b82f6;
+            --mountain-brown: #92400e;
+        }
+
+        body {
+            background-color: #f1f5f9;
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .map-container {
+            background-color: var(--ocean-blue);
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.05);
+            touch-action: none;
+        }
+
+        .country {
+            fill: var(--land-white);
+            stroke: var(--border-color);
+            stroke-width: 0.5px;
+            cursor: pointer;
+            transition: fill 0.2s;
+        }
+
+        .ocean-bg {
+            fill: var(--ocean-blue);
+            cursor: crosshair;
+        }
+
+        /* Elementos Físicos */
+        .river-path {
+            fill: none;
+            stroke: var(--river-blue);
+            stroke-width: 2px;
+            stroke-linecap: round;
+            pointer-events: none;
+            opacity: 0.8;
+        }
+
+        .mountain-path {
+            fill: var(--mountain-brown);
+            opacity: 0.35;
+            pointer-events: none;
+            stroke: var(--mountain-brown);
+            stroke-width: 0.5px;
+        }
+
+        .lake-path {
+            fill: var(--river-blue);
+            opacity: 0.7;
+            stroke: white;
+            stroke-width: 1px;
+            pointer-events: none;
+        }
+
+        .correct { fill: var(--correct-color) !important; }
+        .wrong { fill: var(--wrong-color) !important; }
+
+        #loading-overlay { 
+            background: white; z-index: 100; position: fixed; inset: 0; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+
+        .pulse-text { animation: pulse 2s infinite ease-in-out; }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.03); }
+        }
+
+        .ui-screen {
+            z-index: 50;
+            backdrop-filter: blur(8px);
+            background-color: rgba(15, 23, 42, 0.8);
+            transition: all 0.4s ease-out;
+        }
+
+        .menu-card {
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .menu-card:hover {
+            transform: translateY(-5px);
+            border-color: #3b82f6;
+        }
+
+        /* Estilo para el scroll de la tabla */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <div id="loading-overlay">
+        <div class="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p class="text-slate-600 font-bold uppercase text-[10px] tracking-widest text-center px-4">Cargando Atlas de América...</p>
+    </div>
+
+    <!-- PANTALLA MENÚ PRINCIPAL -->
+    <div id="menu-screen" class="fixed inset-0 ui-screen flex items-center justify-center p-4">
+        <div class="bg-white rounded-[2.5rem] p-8 sm:p-12 max-w-2xl w-full shadow-2xl text-center">
+            <header class="mb-10">
+                <span class="bg-blue-100 text-blue-600 px-4 py-1 rounded-full text-xs font-bold uppercase tracking-widest">Geografía Escolar</span>
+                <h2 class="text-5xl font-black text-slate-800 mt-4 tracking-tighter uppercase italic">Mapa Mudo</h2>
+                <p class="text-slate-500 mt-2 font-medium italic">Selecciona el modo de examen:</p>
+            </header>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-10">
+                <div onclick="initChallenge('politico')" class="menu-card bg-slate-50 border-2 border-slate-100 rounded-3xl p-8 text-center hover:bg-white">
+                    <div class="text-5xl mb-4">🏛️</div>
+                    <h3 class="text-xl font-bold text-slate-800 uppercase italic">Mapa Político</h3>
+                    <p class="text-slate-400 text-sm mt-2 font-medium">Países y fronteras.</p>
+                </div>
+
+                <div onclick="initChallenge('fisico')" class="menu-card bg-slate-50 border-2 border-slate-100 rounded-3xl p-8 text-center hover:bg-white">
+                    <div class="text-5xl mb-4">🏔️</div>
+                    <h3 class="text-xl font-bold text-slate-800 uppercase italic">Mapa Físico</h3>
+                    <p class="text-slate-400 text-sm mt-2 font-medium">Relieve, ríos y costas.</p>
+                </div>
+            </div>
+
+            <footer class="border-t border-slate-100 pt-6">
+                <p class="text-slate-400 text-xs font-medium">Desarrollado por <span class="text-slate-600 font-bold tracking-tight">Javier Gijón</span></p>
+                <p class="text-slate-400 text-[10px] mt-1">Prof. del IES María Moliner (Segovia)</p>
+            </footer>
+        </div>
+    </div>
+
+    <!-- HEADER DEL JUEGO -->
+    <header id="game-header" class="bg-slate-900 text-white p-3 shadow-xl z-20 hidden">
+        <div class="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-4">
+                <button onclick="confirmExit()" class="bg-slate-800 hover:bg-red-600 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-colors border border-slate-700">
+                    ⬅ Menú
+                </button>
+                <h1 class="text-lg font-black tracking-tighter uppercase italic hidden sm:block tracking-widest">América <span class="text-blue-400 font-light">Muda</span></h1>
+            </div>
+
+            <div class="flex gap-4">
+                <div class="text-center px-4">
+                    <p class="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Puntos</p>
+                    <p id="score" class="text-xl font-mono text-green-400 font-bold leading-none">0</p>
+                </div>
+                <div id="timer" class="text-xl font-mono text-blue-300 font-bold border-l border-slate-700 pl-4">00:00</div>
+            </div>
+        </div>
+    </header>
+
+    <!-- QUIZ HUD -->
+    <div id="game-hud" class="bg-white border-b py-4 px-6 text-center shadow-md relative z-10 hidden">
+        <span id="category-label" class="text-blue-500 text-[10px] font-black uppercase tracking-[0.3em] mb-1 block italic">Localiza:</span>
+        <div id="target-name" class="text-2xl sm:text-4xl font-black text-slate-800 uppercase pulse-text">---</div>
+        <div id="feedback-msg" class="text-sm font-bold mt-1 h-5 uppercase italic opacity-0">...</div>
+    </div>
+
+    <!-- Map Viewport -->
+    <main class="flex-grow relative map-container overflow-hidden">
+        <svg id="map-svg" class="w-full h-full">
+            <g id="main-group">
+                <rect id="ocean-rect" x="-5000" y="-5000" width="10000" height="10000" class="ocean-bg" />
+                <g id="countries-layer"></g>
+                <g id="physical-layer"></g>
+                <g id="hint-layer"></g>
+            </g>
+        </svg>
+        
+        <div class="absolute bottom-6 right-6 flex flex-col gap-2">
+            <button onclick="zoomIn()" class="w-12 h-12 bg-white shadow-xl rounded-xl font-black text-xl text-slate-800 border hover:bg-slate-50 transition-colors">+</button>
+            <button onclick="zoomOut()" class="w-12 h-12 bg-white shadow-xl rounded-xl font-black text-xl text-slate-800 border hover:bg-slate-50 transition-colors">-</button>
+            <button onclick="resetZoom()" class="w-12 h-12 bg-white shadow-xl rounded-xl text-[10px] font-black text-slate-800 border hover:bg-slate-50 transition-colors">RESET</button>
+        </div>
+    </main>
+
+    <!-- Modal Final -->
+    <div id="end-modal" class="fixed inset-0 bg-slate-900/95 hidden z-[60] flex items-center justify-center p-4 backdrop-blur-md">
+        <div class="bg-white rounded-[2.5rem] p-6 sm:p-10 max-w-lg w-full text-center shadow-2xl flex flex-col max-h-[90vh]">
+            <h2 class="text-3xl font-black text-slate-800 mb-2 italic uppercase">¡Reto Finalizado!</h2>
+            
+            <div id="final-stats-container" class="mb-4">
+                <p id="final-score-text" class="text-slate-500 text-sm font-medium mb-1"></p>
+                <div class="text-2xl font-black text-blue-600" id="final-percentage">0% Precisión</div>
+            </div>
+
+            <!-- Tabla de aciertos/fallos -->
+            <div class="flex-grow overflow-y-auto custom-scrollbar border rounded-2xl mb-6 bg-slate-50">
+                <table class="w-full text-left text-xs sm:text-sm">
+                    <thead class="bg-slate-200 sticky top-0">
+                        <tr>
+                            <th class="p-3 font-bold uppercase text-slate-600">Elemento</th>
+                            <th class="p-3 font-bold uppercase text-slate-600 text-center">Resultado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="results-table-body">
+                        <!-- Se poblará dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <button onclick="confirmExit()" class="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-black transition-all uppercase tracking-widest mb-6 shrink-0">Volver al Menú</button>
+            
+            <div class="border-t border-slate-100 pt-4 shrink-0">
+                <p class="text-slate-400 text-[10px]">Programa por <span class="font-bold text-slate-600">Javier Gijón</span></p>
+                <p class="text-slate-300 text-[9px]">IES María Moliner (Segovia)</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const nameMap = {
+            "Canada": "Canadá", "United States of America": "Estados Unidos", "Mexico": "México",
+            "Guatemala": "Guatemala", "Belize": "Belice", "Honduras": "Honduras", "El Salvador": "El Salvador",
+            "Nicaragua": "Nicaragua", "Costa Rica": "Costa Rica", "Panama": "Panamá", "Colombia": "Colombia",
+            "Venezuela": "Venezuela", "Guyana": "Guyana", "Suriname": "Surinam", "Ecuador": "Ecuador",
+            "Peru": "Perú", "Brazil": "Brasil", "Bolivia": "Bolivia", "Paraguay": "Paraguay",
+            "Uruguay": "Uruguay", "Chile": "Chile", "Argentina": "Argentina", "Cuba": "Cuba",
+            "Haiti": "Haití", "Dominican Rep.": "República Dominicana", "Jamaica": "Jamaica",
+            "Puerto Rico": "Puerto Rico", "The Bahamas": "Bahamas", "Greenland": "Groenlandia", 
+            "French Guiana": "Guayana Francesa", "Falkland Is.": "Islas Malvinas"
+        };
+
+        const fisicoData = [
+            { n: "Cordillera de Alaska", c: [[-155, 62], [-145, 63], [-140, 61]], r: 6 },
+            { n: "Montes Rocosos", c: [[-120, 60], [-115, 50], [-105, 38], [-105, 30]], r: 6 },
+            { n: "Sierra Madre", c: [[-108, 28], [-103, 23], [-98, 18]], r: 5 },
+            { n: "Cordillera de los Andes", c: [[-78, 10], [-78, 0], [-75, -15], [-68, -25], [-70, -35], [-72, -50]], r: 8 },
+            { n: "Macizo de las Guayanas", c: [[-65, 5], [-60, 5], [-55, 2]], r: 6 },
+            { n: "Meseta del Matto Grosso", c: [[-58, -13], [-54, -16]], r: 6 },
+            { n: "La Pampa Argentina", c: [[-64, -34], [-60, -36], [-58, -34]], r: 6 },
+            { n: "La Patagonia", c: [[-71, -45], [-68, -48], [-70, -52]], r: 6 },
+            { n: "Grandes Llanuras Americanas", c: [[-105, 45], [-100, 40], [-98, 35]], r: 9 },
+            { n: "Río Yukon", c: [[-135, 60], [-150, 65], [-160, 63]], r: 5 },
+            { n: "Río Mackenzie", c: [[-115, 61], [-125, 65], [-135, 69]], r: 5 },
+            { n: "Río Mississippi", c: [[-94, 47], [-90, 42], [-91, 35], [-89, 30]], r: 6 },
+            { n: "Río Orinoco", c: [[-67, 3], [-66, 7], [-61, 9]], r: 5 },
+            { n: "Río San Francisco", c: [[-43, -15], [-40, -10], [-36, -10]], r: 5 },
+            { n: "Río Amazonas", c: [[-75, -3], [-70, -4], [-60, -3], [-50, 0]], r: 7 },
+            { n: "Cabo Hatteras", c: [[-75.5, 35.2]], r: 2.5 },
+            { n: "Cabo Mendocino", c: [[-124.4, 40.4]], r: 2.5 },
+            { n: "Cabo San Roque", c: [[-35.3, -5.4]], r: 2.5 },
+            { n: "Cabo de Hornos", c: [[-67.2, -55.9]], r: 2.5 },
+            { n: "Bahía de Hudson", c: [[-85, 60], [-80, 55]], r: 9 },
+            { n: "Península del Labrador", c: [[-62, 55], [-65, 53]], r: 7 },
+            { n: "Península de Florida", c: [[-81, 28]], r: 4 },
+            { n: "Península de Yucatán", c: [[-89, 20], [-85, 18]], r: 4 },
+            { n: "Península de California", c: [[-113, 27], [-110, 24]], r: 5 },
+            { n: "Estrecho de Bering", c: [[-168, 66]], r: 4 },
+            { n: "Estrecho de Panamá", c: [[-79.5, 9]], r: 3 },
+            { n: "Estrecho de Magallanes", c: [[-71, -53]], r: 3 },
+            { n: "Océano Glacial Ártico", c: [[-100, 80], [-50, 85], [-150, 85]], r: 25 },
+            { n: "Océano Atlántico", c: [[-40, 40], [-30, 10], [-40, -20], [-50, -40]], r: 30 },
+            { n: "Océano Pacífico", c: [[-140, 40], [-120, 10], [-100, -20], [-130, -40], [-160, 0]], r: 35 },
+            { n: "Mar Caribe", c: [[-75, 15], [-70, 18], [-80, 15]], r: 9 },
+            { n: "Golfo de México", c: [[-90, 25], [-85, 28]], r: 8 },
+            { n: "Golfo de Alaska", c: [[-145, 58]], r: 7 },
+            { n: "Golfo de Arica", c: [[-71, -18]], r: 4 },
+            { n: "Lago Huron", c: [[-82, 45]], r: 3 },
+            { n: "Lago Michigan", c: [[-87, 44]], r: 3 },
+            { n: "Lago Superior", c: [[-88, 48]], r: 3 },
+            { n: "Isla de Terranova", c: [[-56, 49]], r: 4 },
+            { n: "I. de Cuba", c: [[-80, 21.5]], r: 3 },
+            { n: "I. de Jamaica", c: [[-77, 18]], r: 2.5 },
+            { n: "I. de Puerto Rico", c: [[-66.5, 18.2]], r: 2.5 },
+            { n: "Archipiélago de las pequeñas Antillas", c: [[-61, 15], [-62, 12]], r: 4 }
+        ];
+
+        let state = { 
+            mode: null, 
+            countries: [], 
+            pending: [], 
+            currentTarget: null, 
+            score: 0, 
+            isLocked: true, 
+            gameActive: false,
+            startTime: null,
+            timerInterval: null,
+            history: [] // Historial de respuestas {name, status}
+        };
+
+        const svg = d3.select("#map-svg");
+        const g = d3.select("#main-group");
+        let projection = null;
+        let path = null;
+        let zoom = null;
+
+        async function init() {
+            try {
+                const world = await d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+                const countriesData = topojson.feature(world, world.objects.countries).features;
+                projection = d3.geoMercator().scale(280).center([-85, 15]).translate([window.innerWidth / 2, window.innerHeight / 2]);
+                path = d3.geoPath().projection(projection);
+                state.countries = countriesData.filter(d => nameMap[d.properties.name]);
+                d3.select("#ocean-rect").on("click", (e) => handleMapClick(null, e));
+                d3.select("#countries-layer").selectAll(".country").data(state.countries).enter().append("path").attr("d", path).attr("class", "country").attr("id", (d) => `id-${d.id}`).on("click", (e, d) => handleMapClick(d, e));
+                zoom = d3.zoom().scaleExtent([1, 15]).on("zoom", (e) => g.attr("transform", e.transform));
+                svg.call(zoom);
+                document.getElementById('loading-overlay').style.display = 'none';
+            } catch (e) { console.error(e); }
+        }
+
+        function initChallenge(mode) {
+            state.mode = mode;
+            state.gameActive = true;
+            state.score = 0;
+            state.history = [];
+            document.getElementById('score').innerText = "0";
+            document.getElementById('menu-screen').classList.add('opacity-0', 'pointer-events-none');
+            document.getElementById('game-header').classList.remove('hidden');
+            document.getElementById('game-hud').classList.remove('hidden');
+            if (mode === 'politico') {
+                state.pending = [...state.countries].sort(() => Math.random() - 0.5);
+                document.getElementById('category-label').innerText = "Busca el país:";
+            } else {
+                state.pending = [...fisicoData].sort(() => Math.random() - 0.5);
+                document.getElementById('category-label').innerText = "Busca el accidente físico:";
+            }
+            drawPhysicalVisuals();
+            startTimer();
+            nextQuestion();
+        }
+
+        function confirmExit() {
+            state.gameActive = false;
+            state.history = [];
+            clearInterval(state.timerInterval);
+            document.getElementById('menu-screen').classList.remove('opacity-0', 'pointer-events-none');
+            document.getElementById('game-header').classList.add('hidden');
+            document.getElementById('game-hud').classList.add('hidden');
+            document.getElementById('end-modal').classList.add('hidden');
+            d3.select("#physical-layer").selectAll("*").remove();
+            d3.select("#hint-layer").selectAll("*").remove();
+            d3.selectAll(".country").classed("correct", false).classed("wrong", false);
+            resetZoom();
+        }
+
+        function drawPhysicalVisuals() {
+            const layer = d3.select("#physical-layer");
+            layer.selectAll("*").remove();
+            if (state.mode !== 'fisico' || !projection) return;
+            const lineGenerator = d3.line().x((p) => projection(p)[0]).y((p) => projection(p)[1]).curve(d3.curveBasis);
+            const rivers = [{ coords: [[-75,-3], [-70,-4], [-60,-3], [-50,0]] }, { coords: [[-94,47], [-90,40], [-91,30]] }, { coords: [[-67,3], [-66,7], [-61,9]] }, { coords: [[-135,60], [-150,65], [-162,63]] }, { coords: [[-115,61], [-125,65], [-135,69]] }];
+            layer.selectAll(".river-path").data(rivers).enter().append("path").attr("d", (r) => lineGenerator(r.coords)).attr("class", "river-path");
+            const mountains = [{ coords: [[-78,10], [-75,-10], [-68,-25], [-72,-55], [-70,-55], [-66,-25], [-73,-10], [-76,10]] }, { coords: [[-120,60], [-115,50], [-105,35], [-108,35], [-118,50], [-123,60]] }];
+            layer.selectAll(".mountain-path").data(mountains).enter().append("path").attr("d", (m) => lineGenerator(m.coords)).attr("class", "mountain-path");
+            const lakes = [[-88,48], [-87,44], [-82,45]]; 
+            layer.selectAll(".lake-path").data(lakes).enter().append("circle").attr("cx", (l) => projection(l)[0]).attr("cy", (l) => projection(l)[1]).attr("r", 5).attr("class", "lake-path");
+        }
+
+        function nextQuestion() {
+            if (!state.gameActive) return;
+            if (state.pending.length === 0) {
+                finishChallenge();
+                return;
+            }
+            state.currentTarget = state.pending.pop();
+            const label = state.mode === 'politico' ? nameMap[state.currentTarget.properties.name] : state.currentTarget.n;
+            document.getElementById('target-name').innerText = label;
+            document.getElementById('feedback-msg').style.opacity = "0";
+            state.isLocked = false;
+        }
+
+        function handleMapClick(d, event) {
+            if (!state.gameActive || state.isLocked || !projection) return;
+            state.isLocked = true;
+
+            const currentName = state.mode === 'politico' ? nameMap[state.currentTarget.properties.name] : state.currentTarget.n;
+
+            if (state.mode === 'politico') {
+                if (!d) { state.isLocked = false; return; }
+                const isCorrect = d.id === state.currentTarget.id;
+                const el = d3.select(`#id-${d.id}`);
+                
+                if (isCorrect) {
+                    state.score += 10;
+                    state.history.push({ name: currentName, status: 'hit' });
+                    el.classed("correct", true);
+                    showFeedback("¡Correcto! ✅", "text-green-600");
+                    setTimeout(() => { el.classed("correct", false); nextQuestion(); }, 1200);
+                } else {
+                    state.history.push({ name: currentName, status: 'miss' });
+                    el.classed("wrong", true);
+                    const correctEl = d3.select(`#id-${state.currentTarget.id}`);
+                    correctEl.classed("correct", true);
+                    showFeedback(`No, es ${nameMap[d.properties.name]} ❌`, "text-red-600");
+                    setTimeout(() => { 
+                        el.classed("wrong", false); 
+                        correctEl.classed("correct", false); 
+                        nextQuestion(); 
+                    }, 3500);
+                }
+            } else {
+                const [mx, my] = d3.pointer(event, g.node());
+                const [lon, lat] = projection.invert([mx, my]);
+                let minDist = Infinity;
+                let closestPoint = null;
+                state.currentTarget.c.forEach(point => {
+                    const dist = Math.sqrt(Math.pow(lon - point[0], 2) + Math.pow(lat - point[1], 2));
+                    if (dist < minDist) { minDist = dist; closestPoint = point; }
+                });
+                if (minDist < state.currentTarget.r) {
+                    state.score += 15;
+                    state.history.push({ name: currentName, status: 'hit' });
+                    showFeedback("¡Excelente! 🌟", "text-green-600");
+                    animateHint(closestPoint, "#22c55e", false);
+                    setTimeout(nextQuestion, 1200);
+                } else {
+                    state.history.push({ name: currentName, status: 'miss' });
+                    showFeedback("Casi... estaba aquí 📍", "text-red-600");
+                    animateHint(closestPoint, "#ef4444", true);
+                    setTimeout(nextQuestion, 3500);
+                }
+            }
+            document.getElementById('score').innerText = state.score;
+        }
+
+        function finishChallenge() {
+            state.gameActive = false;
+            clearInterval(state.timerInterval);
+            
+            // Cálculos de tabla
+            const hits = state.history.filter(i => i.status === 'hit').length;
+            const total = state.history.length;
+            const percentage = Math.round((hits / total) * 100);
+
+            document.getElementById('final-score-text').innerText = `Has obtenido ${state.score} puntos en ${document.getElementById('timer').innerText}.`;
+            document.getElementById('final-percentage').innerText = `${percentage}% Precisión`;
+
+            // Construir filas de la tabla
+            const tbody = document.getElementById('results-table-body');
+            tbody.innerHTML = '';
+            
+            state.history.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "border-b border-slate-100 hover:bg-slate-100 transition-colors";
+                
+                const tdName = document.createElement('td');
+                tdName.className = "p-3 font-medium text-slate-700";
+                tdName.innerText = item.name;
+                
+                const tdResult = document.createElement('td');
+                tdResult.className = "p-3 text-center";
+                
+                const dot = document.createElement('span');
+                dot.className = `inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-[10px] font-bold ${item.status === 'hit' ? 'bg-green-500' : 'bg-red-500'}`;
+                dot.innerText = item.status === 'hit' ? '✓' : '✗';
+                
+                tdResult.appendChild(dot);
+                tr.appendChild(tdName);
+                tr.appendChild(tdResult);
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('end-modal').classList.remove('hidden');
+        }
+
+        function animateHint(coords, color, permanent) {
+            if (!projection) return;
+            const pos = projection(coords);
+            const hintLayer = d3.select("#hint-layer");
+            const hint = hintLayer.append("circle").attr("cx", pos[0]).attr("cy", pos[1]).attr("r", 0).attr("fill", "none").attr("stroke", color).attr("stroke-width", 3);
+            if (!permanent) { hint.transition().duration(500).attr("r", 40).style("opacity", 0).remove(); }
+            else { hint.transition().duration(400).attr("r", 20); setTimeout(() => hint.remove(), 3400); }
+        }
+
+        function showFeedback(msg, color) {
+            const f = document.getElementById('feedback-msg');
+            f.innerText = msg;
+            f.className = `text-sm font-black mt-1 h-5 transition-all opacity-100 ${color} italic uppercase`;
+        }
+
+        function startTimer() {
+            state.startTime = Date.now();
+            if(state.timerInterval) clearInterval(state.timerInterval);
+            state.timerInterval = setInterval(() => {
+                if (!state.gameActive) return;
+                const diff = Date.now() - state.startTime;
+                const m = Math.floor(diff / 60000).toString().padStart(2, '0');
+                const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
+                document.getElementById('timer').innerText = `${m}:${s}`;
+            }, 1000);
+        }
+
+        function zoomIn() { svg.transition().duration(400).call(zoom.scaleBy, 1.8); }
+        function zoomOut() { svg.transition().duration(400).call(zoom.scaleBy, 0.6); }
+        function resetZoom() { svg.transition().duration(700).call(zoom.transform, d3.zoomIdentity); }
+        window.onload = init;
+    </script>
+</body>
+</html>
